@@ -1,0 +1,18 @@
+version: '3.1'
+
+  services:
+    webapp:
+      container_name: webapp
+      image: webapp:1.0
+
+    nginx:
+      container_name: nginx
+      image: nginx:latest
+      links:
+        - "webapp"
+      volumes:
+        - ./proxy.conf:/etc/nginx/conf.d
+      depends_on:
+        - tomcat
+      ports:
+        - "80:80"
