@@ -1,0 +1,42 @@
+---
+- name: Print the current image being pushed.
+  debug: var=webapp_image_name
+
+- name: Ensure there's no webapp image locally tagged with the ecr_url.
+  docker_image:
+    name: "{{ ecr_url }}/{{ webapp_image_name }}:{{ ecr_image_tag }}"
+    force_tag: true
+    state: absent
+
+- name: Print the current image being pushed.
+  debug: var=nginx_image_name
+
+- name: Ensure there's no nginx image locally tagged with the ecr_url.
+  docker_image:
+    name: "{{ ecr_url }}/{{ nginx_image_name }}:{{ ecr_image_tag }}"
+    force_tag: true
+    state: absent
+
+- name: apply ecr tag to webapp image
+  command: "docker tag {{ webapp_image_name }}:{{ ecr_image_tag }} {{ ecr_url }}/{{ webapp_image_name }}:{{ ecr_image_tag }}"
+  changed_when: true
+
+- name: apply ecr tag to nginx image
+  command: "docker tag {{ nginx_image_name }}:{{ ecr_image_tag }} {{ ecr_url }}/{{ nginx_image_name }}:{{ ecr_image_tag }}"
+  changed_when: true
+
+- name: Push webapp image to ECR.
+  command: "docker push {{ ecr_url }}/{{ webapp_image_name }}:{{ ecr_image_tag }}"
+  register: push_result
+  changed_when: true
+  until: push_result is success
+  retries: 10
+  delay: 2
+
+- name: Push nginx image to ECR.
+  command: "docker push {{ ecr_url }}/{{ nginx_image_name }}:{{ ecr_image_tag }}"
+  register: push_result
+  changed_when: true
+  until: push_result is success
+  retries: 10
+  delay: 2

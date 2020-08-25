@@ -1,0 +1,46 @@
+---
+- name: Log into ECR if required.
+  shell: "$(aws ecr get-login --no-include-email --region {{ ecr_region }})"
+  when: ecr_push or ecr_login_required
+
+- name: Ensure webapp ECR repo exists.
+  ecs_ecr:
+    name: "{{ webapp_image_name }}"
+    region: "{{ ecr_region }}"
+    registry_id: "{{ ecr_account_id }}"
+    state: present
+  when: ecr_push
+
+- name: Ensure nginx ECR repo exists.
+  ecs_ecr:
+    name: "{{ nginx_image_name }}"
+    region: "{{ ecr_region }}"
+    registry_id: "{{ ecr_account_id }}"
+    state: present
+  when: ecr_push
+
+- name: Build webapp image.
+  docker_image:
+    build:
+      path: "{{ webapp_image_src_dir }}"
+      pull: true
+      args: "{{ ecr_image_buildargs | default(omit) }}"
+    name: "{{ webapp_image_name }}"
+    state: present
+    source: build
+    tag: "{{ ecr_image_tag }}"
+
+- name: Build nginx image.
+  docker_image:
+    build:
+      path: "{{ nginx_image_src_dir }}"
+      pull: true
+      args: "{{ ecr_image_buildargs | default(omit) }}"
+    name: "{{ nginx_image_name }}"
+    state: present
+    source: build
+    tag: "{{ ecr_image_tag }}"
+
+- name: Tag and push the images.
+  include_tasks: push-docker.yml
+  when: ecr_push

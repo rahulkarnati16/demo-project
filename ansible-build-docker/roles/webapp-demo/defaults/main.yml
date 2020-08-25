@@ -1,0 +1,22 @@
+---
+
+# Image build options.
+webapp_image_src_dir: /home/ec2-user/demo/docker/webapp
+nginx_image_src_dir: /home/ec2-user/demo/docker/nginx
+webapp_image_name: webapp-demo
+nginx_image_name: nginx
+
+# You can add one or more tags.
+ecr_image_tag: 'latest'
+ecr_image_buildargs: {}
+
+# Set this to true if you need to pull from ECR for the image build.
+ecr_login_required: true
+
+# Whether to push the built image to ECR.
+ecr_push: true
+
+# AWS account details for ECR.
+ecr_region: us-west-2
+ecr_account_id: '408362812773'
+ecr_url: "{{ ecr_account_id }}.dkr.ecr.{{ ecr_region }}.amazonaws.com"

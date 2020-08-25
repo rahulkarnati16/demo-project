@@ -1,0 +1,5 @@
+---
+
+- name: main task file
+  include_tasks: build-docker.yml
+  when: ecr_push
