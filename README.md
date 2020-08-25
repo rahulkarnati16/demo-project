@@ -1,4 +1,4 @@
-## rahul demo DevOps on AWS
+## Rahul demo DevOps on AWS
 This project is based on basic helloworld stack but is targetted to demo multiple modern DevOps tools and tech on AWS Platform.
 
 ### AWS Platform:
@@ -13,8 +13,10 @@ This project is based on basic helloworld stack but is targetted to demo multipl
 8. AWS Application Load Balancer and Target Groups
 
 
-Docker: AWS ECS Fargate, ECR, Docker standalone
+####Docker: AWS ECS Fargate, ECR, Docker standalone
 
-Terraform : to build the test EC2 server to build and push docker testing and IAM permissions
+####CloudFormation: to spin the ECS Fargate setup with ALB
 
-Ansible: playbook to build and push docker images to ECR
+####Terraform : to build the test EC2 server to build and push docker testing and IAM permissions
+
+####Ansible: playbook to build and push docker images to ECR
