@@ -1,0 +1,258 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creates webapp and nginx containers in the designated cluster using Fargate
+Parameters:
+  ClusterName:
+    Description: The name of the cluster in ECS
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /common/cluster-name
+  SecurityGroup:
+    Description: The parameter where the security group ID is stored
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::SecurityGroup::Id>
+    Default: /env/security-group-id
+  TargetGroup1:
+    Description: The target group for webapp
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /env/target-group1-arn
+  WebappTaskRoleName:
+    Description: The name to give to the IAM role
+    Type: String
+  InternalSubnets:
+    Description: The subnets to use for internal network
+    Type: AWS::SSM::Parameter::Value<List<AWS::EC2::Subnet::Id>>
+    Default: /common/subnet-internal
+  WebappCPU:
+    Description: The cpu cap for the webapp container
+    Type: String
+  WebappMemory:
+    Description: The memory cap for the webapp container
+    Type: String
+  WebappImage:
+    Description: The location of the Docker image for the webapp container
+    Type: String
+  WebappDesiredServiceCount:
+    Description: The desired number of Webapp containers to create
+    Type: Number
+  WebappMaxServiceCount:
+    Description: The maximum number of Webapp containers
+    Type: Number
+Resources:
+  WebappLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub
+        - '/apps/${service}'
+        - { service: !Join [ "", [!Ref ClusterName, "-webapp"] ] }
+      RetentionInDays: 90
+  NginxLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub
+        - '/apps/${service}'
+        - { service: !Join [ "", [!Ref ClusterName, "-nginx"] ] }
+      RetentionInDays: 90
+  WebappTaskIamRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref WebappTaskRoleName
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS:
+                - !GetAtt WebappTaskExecutionIamRole.Arn
+            Action:
+              - "sts:AssumeRole"
+  WebappTaskExecutionIamRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join [ "", [!Ref WebappTaskRoleName, "-service"] ]
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: !Join [ "", [!Ref WebappTaskRoleName, "-service"] ]
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Resource: "*"
+                Action:
+                  - "ssm:GetParameter"
+                  - "logs:CreateLogStream"
+                  - "ssm:DescribeParameters"
+                  - "kms:DescribeKey"
+                  - "ecr:BatchCheckLayerAvailability"
+                  - "ecr:GetDownloadUrlForLayer"
+                  - "ecr:GetAuthorizationToken"
+                  - "ssm:GetParameters"
+                  - "logs:PutLogEvents"
+                  - "kms:ListKeys"
+                  - "kms:ListAliases"
+                  - "ecr:BatchGetImage"
+  WebappTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      RequiresCompatibilities:
+        - "FARGATE"
+      Family: !Join [ "", [!Ref ClusterName, "-webapp" ] ]
+      Cpu: !Ref WebappCPU
+      Memory: !Ref WebappMemory
+      NetworkMode: awsvpc
+      ExecutionRoleArn: !Ref WebappTaskExecutionIamRole
+      TaskRoleArn: !Ref WebappTaskExecutionIamRole
+      ContainerDefinitions:
+        - Name: webapp
+          Image: !Ref WebappImage
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref WebappLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: webapp
+          PortMappings:
+            - ContainerPort: 8080
+        - Name: nginx
+            Image: !Ref NginxImage
+            LogConfiguration:
+              LogDriver: awslogs
+              Options:
+                awslogs-group: !Ref NginxLogGroup
+                awslogs-region: !Ref AWS::Region
+                awslogs-stream-prefix: nginx
+            PortMappings:
+              - ContainerPort: 80
+            DependsOn:
+              - Condition: HEALTHY
+              - ContainerName: webapp
+  WebappService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Join [ "", [!Ref ClusterName, "-webapp-service" ] ]
+      Cluster: !Ref ClusterName
+      DesiredCount: !Ref WebappDesiredServiceCount
+      LaunchType: FARGATE
+      TaskDefinition: !Ref WebappTaskDefinition
+      HealthCheckGracePeriodSeconds: 300
+      LoadBalancers:
+        - ContainerName: !Join [ "", [!Ref ClusterName, "-nginx"] ]
+          ContainerPort: 80
+          TargetGroupArn: !Ref WebappTargetGroup
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups:
+            - !Ref SecurityGroup
+          Subnets: !Ref InternalSubnets
+  WebappScalingTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: !Ref WebappMaxServiceCount
+      MinCapacity: !Ref WebappDesiredServiceCount
+      ResourceId: !Sub
+        - "service/${clusterName}/${serviceName}"
+        - { clusterName: !Ref ClusterName, serviceName: !GetAtt WebappService.Name }
+      RoleARN: !GetAtt WebappTaskExecutionIamRole.Arn
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+
+# (Additional Monitoring) CloudWatch Alarms set based on memory and cpu metrics
+  WebappCpuScalingPolicyUp:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: WebappCpuScalingPolicyUp
+      PolicyType: StepScaling
+      ScalingTargetId: !Ref WebappScalingTarget
+      StepScalingPolicyConfiguration:
+        AdjustmentType: ChangeInCapacity
+        Cooldown: 180
+        MetricAggregationType: Average
+        StepAdjustments:
+          - MetricIntervalLowerBound: 10
+            ScalingAdjustment: 1
+  WebappCpuScalingPolicyDown:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: WebappCpuScalingPolicyDown
+      PolicyType: StepScaling
+      ScalingTargetId: !Ref WebappScalingTarget
+      StepScalingPolicyConfiguration:
+        AdjustmentType: ChangeInCapacity
+        Cooldown: 180
+        MetricAggregationType: Average
+        StepAdjustments:
+          - MetricIntervalUpperBound: -10
+            ScalingAdjustment: -1
+  WebappCpuAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: CPU utilization for Webapp service
+      MetricName: CpuUtilization
+      Namespace: AWS/ECS
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 30
+      AlarmActions:
+        - !Ref WebappCpuScalingPolicyUp
+      OKActions:
+        - !Ref WebappCpuScalingPolicyDown
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: ServiceName
+          Value: !GetAtt WebappService.Name
+        - Name: ClusterName
+          Value: !Ref ClusterName
+  WebappMemoryScalingPolicyUp:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: WebappMemoryScalingPolicyUp
+      PolicyType: StepScaling
+      ScalingTargetId: !Ref WebappScalingTarget
+      StepScalingPolicyConfiguration:
+        AdjustmentType: ChangeInCapacity
+        Cooldown: 180
+        MetricAggregationType: Average
+        StepAdjustments:
+          - MetricIntervalLowerBound: 20
+            ScalingAdjustment: 1
+  WebappMemoryScalingPolicyDown:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: WebappMemoryScalingPolicyDown
+      PolicyType: StepScaling
+      ScalingTargetId: !Ref WebappScalingTarget
+      StepScalingPolicyConfiguration:
+        AdjustmentType: ChangeInCapacity
+        Cooldown: 180
+        MetricAggregationType: Average
+        StepAdjustments:
+          - MetricIntervalUpperBound: -20
+            ScalingAdjustment: -1
+  WebappMemoryAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Memory utilization for Webapp service
+      MetricName: MemoryUtilization
+      Namespace: AWS/ECS
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 60
+      AlarmActions:
+        - !Ref WebappMemoryScalingPolicyUp
+      OKActions:
+        - !Ref WebappMemoryScalingPolicyDown
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: ServiceName
+          Value: !GetAtt WebappService.Name
+        - Name: ClusterName
+          Value: !Ref ClusterName
+ 

@@ -1,0 +1,102 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creates the load balancer for assessment webapp
+Parameters:
+  ClusterName:
+    Description: The name of the cluster in ECS
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /common/cluster-name
+  VPCID:
+    Description: The VPC in which the cluster is contained
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::VPC::Id>
+    Default: /common/vpc-id
+  Subnets:
+    Description: The subnets to use for the load balancer
+    Type: AWS::SSM::Parameter::Value<List<AWS::EC2::Subnet::Id>>
+    Default: /common/subnet-pub
+  SecurityGroup:
+    Description: The security group to assign to the Application load balancer
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::SecurityGroup::Id>
+    Default: /env/security-group-id
+  Certificate:
+    Description: The certificate ARN https cert in ACM
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /common/certificate-arn
+#  AccessLogBucket:
+#    Description: The name of the bucket in S3 where access logs will be stored
+#    Type: String
+#  AccessLogPrefix:
+#    Description: The prefix for the location in S3 for access logs
+#    Type: String
+#    Default: webapp-lb
+Resources:
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Join [ "", [!Ref ClusterName, "-alb"] ]
+      Type: application
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref SecurityGroup
+      Subnets: !Ref Subnets
+      LoadBalancerAttributes:
+        - Key: deletion_protection.enabled
+          Value: true
+        - Key: idle_timeout.timeout_seconds
+          Value: 60
+        - Key: access_logs.s3.enabled
+          Value: true
+#        - Key: access_logs.s3.bucket
+#          Value: !Ref AccessLogBucket
+#        - Key: access_logs.s3.prefix
+#          Value: !Ref AccessLogPrefix
+      Tags:
+        - Key: Name
+          Value: !Join [ "", [!Ref ClusterName, "-alb"] ]
+  LoadBalancerHttpsListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      SslPolicy: ELBSecurityPolicy-TLS-1-2-2017-01
+      Certificates:
+        - CertificateArn: !Ref Certificate
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup1
+  LoadBalancerHttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup1
+  TargetGroup1:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Join [ "", [!Ref ClusterName, "-tg1"] ]
+      TargetType: ip
+      Port: 80
+      Protocol: HTTP
+      VpcId: !Ref VPCID
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 120
+      HealthCheckProtocol: HTTP
+      HealthCheckPort: 80
+      HealthCheckPath: /
+      HealthCheckIntervalSeconds: 30
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      Tags:
+        - Key: Name
+          Value: !Join [ "", [!Ref ClusterName, "-tg1"] ]
+  TargetGroup1SsmParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /env/target-group1-arn
+      Value: !Ref TargetGroup1
+      Type: String
+      Description: The ARN for the webapp target group

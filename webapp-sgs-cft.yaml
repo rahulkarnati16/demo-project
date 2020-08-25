@@ -1,0 +1,57 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creates the security groups for the webapp project
+Parameters:
+  ClusterName:
+    Description: The name of the cluster in ECS
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /common/cluster-name
+  VPCID:
+    Description: The VPC in which webapp is contained
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::VPC::Id>
+    Default: /common/vpc-id
+  VPCCidr:
+    Description: The CIDR block for this account's VPC
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /common/vpc-cidr
+Resources:
+  WebappSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Join [ "", [!Ref ClusterName, "-webapp-sg"] ]
+      GroupDescription: Security group for webapp
+      VpcId: !Ref VPCID
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: udp
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Join [ "", [!Ref ClusterName, "-webapp-sg"] ]
+  WebappSecurityGroupSsmParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /env/security-group-id
+      Value: !Ref WebappSecurityGroup
+      Type: String
+      Description: The ID for the webapp security group
+  HttpSecurityRule:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref WebappSecurityGroup
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      CidrIp: !Ref VPCCidr
+  HttpsSecurityRule:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref WebappSecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      CidrIp: !Ref VPCCidr
