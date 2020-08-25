@@ -1,0 +1,22 @@
+#!/bin/bash
+
+yum update -y
+yum upgrade -y
+
+## Install basic packages
+yum install git jq telnet wget unzip -y
+#
+## pre-installed aws cli
+#
+## Install docker
+amazon-linux-extras install docker
+service docker start
+usermod -a -G docker ec2-user
+#docker auto-start
+chkconfig docker on
+## Install docker compose
+curl -L "https://github.com/docker/compose/releases/download/1.26.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+chmod +x /usr/local/bin/docker-compose
+
+# Install Ansible
+amazon-linux-extras install ansible2 -y
